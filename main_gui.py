@@ -253,13 +253,12 @@ class BrailleApp:
         cards_frame = tk.Frame(metrics_frame, bg="#ffffff")
         cards_frame.pack(fill="x", pady=(10, 0))
 
-        for i in range(4):
+        for i in range(3):
             cards_frame.grid_columnconfigure(i, weight=1)
 
         self.tile_char    = self._create_metric_card(cards_frame, "Character\nAccuracy", 0)
         self.tile_full    = self._create_metric_card(cards_frame, "Full Word\nAccuracy", 1)
         self.tile_partial = self._create_metric_card(cards_frame, "Partial Word\nAccuracy", 2)
-        self.tile_sent    = self._create_metric_card(cards_frame, "Sentence\nAccuracy", 3)
 
         # Detailed report
         details_frame = tk.Frame(left_frame, bg="#ffffff")
@@ -494,9 +493,8 @@ class BrailleApp:
             self.result_text.delete(1.0, tk.END)
             self.result_text.insert(tk.END, result)
 
-            # Reset all four tiles to default blue
-            for tile in (self.tile_char, self.tile_full,
-                         self.tile_partial, self.tile_sent):
+            # Reset all three tiles to default blue
+            for tile in (self.tile_char, self.tile_full, self.tile_partial):
                 tile.configure(bg="#3498db")
                 for child in tile.winfo_children():
                     if isinstance(child, tk.Label):
@@ -521,7 +519,7 @@ class BrailleApp:
             )
 
     def calc_accuracy(self):
-        """Calculate and display all accuracy metrics including sentence accuracy"""
+        """Calculate and display all accuracy metrics excluding sentence accuracy"""
         if not self.decoded_text:
             messagebox.showwarning(
                 "No Output", "Please decode a Braille image first."
@@ -538,17 +536,12 @@ class BrailleApp:
             with open(self.gt_path, encoding="utf-8") as f:
                 gt_raw = f.read()
 
-            # Normalise both texts — lowercase and strip outer whitespace
             pred  = self.decoded_text.lower().strip()
             truth = gt_raw.lower().strip()
 
-            # ── Word lists (used by word AND character accuracy) ───────────
             truth_words = truth.split()
             pred_words  = pred.split()
 
-            # ── Character Accuracy ─────────────────────────────────────────
-            # Compare characters within each aligned word pair to avoid
-            # positional drift caused by length differences between words
             total_truth_chars   = 0
             total_matched_chars = 0
 
@@ -557,61 +550,22 @@ class BrailleApp:
                 matched = sum(pc == tc for pc, tc in zip(pw, tw))
                 total_matched_chars += matched
 
-            char_acc = round(
-                total_matched_chars / max(total_truth_chars, 1) * 100, 1
-            )
+            char_acc = round(total_matched_chars / max(total_truth_chars, 1) * 100, 1)
+            full_matches = sum(pw == tw for pw, tw in zip(pred_words, truth_words))
+            full_acc = round(full_matches / max(len(truth_words), 1) * 100, 1)
 
-            # ── Full Word Accuracy ─────────────────────────────────────────
-            full_matches = sum(
-                pw == tw
-                for pw, tw in zip(pred_words, truth_words)
-            )
-            full_acc = round(
-                full_matches / max(len(truth_words), 1) * 100, 1
-            )
-
-            # ── Partial Word Accuracy ──────────────────────────────────────
-            # Word counted as partial match if >=60% of characters match
             partial_matches = 0
             for pw, tw in zip(pred_words, truth_words):
                 if len(pw) == len(tw):
                     overlap = sum(pc == tc for pc, tc in zip(pw, tw))
                     if overlap / max(len(tw), 1) >= 0.6:
                         partial_matches += 1
-            partial_acc = round(
-                partial_matches / max(len(truth_words), 1) * 100, 1
-            )
+            partial_acc = round(partial_matches / max(len(truth_words), 1) * 100, 1)
 
-            # ── Sentence Accuracy ──────────────────────────────────────────
-            def split_sentences(text):
-                """
-                Split text into sentences on . ! ?
-                Normalise each sentence: lowercase + collapse whitespace.
-                """
-                parts = re.split(r'(?<=[.!?])\s+', text.strip())
-                return [
-                    ' '.join(s.lower().split())
-                    for s in parts if s.strip()
-                ]
-
-            truth_sents = split_sentences(truth)
-            pred_sents  = split_sentences(pred)
-
-            matched_sents = sum(
-                ps == ts
-                for ps, ts in zip(pred_sents, truth_sents)
-            )
-            sent_acc = round(
-                matched_sents / max(len(truth_sents), 1) * 100, 1
-            )
-
-            # ── Update tiles ───────────────────────────────────────────────
             self._set_tile(self.tile_char,    f"{char_acc}%",    char_acc    >= 60)
             self._set_tile(self.tile_full,    f"{full_acc}%",    full_acc    >= 60)
             self._set_tile(self.tile_partial, f"{partial_acc}%", partial_acc >= 60)
-            self._set_tile(self.tile_sent,    f"{sent_acc}%",    sent_acc    >= 60)
 
-            # ── Detailed report ────────────────────────────────────────────
             lines = [
                 "=" * 50,
                 "              ACCURACY REPORT",
@@ -625,15 +579,8 @@ class BrailleApp:
                 f"  Partial Word Acc.   : {partial_acc}%",
                 f"    Partial matches   : {partial_matches} / {len(truth_words)}",
                 "",
-                f"  Sentence Accuracy   : {sent_acc}%",
-                f"    Matched sentences : {matched_sents} / {len(truth_sents)}",
-                f"    Predicted sents   : {len(pred_sents)}",
-                f"    GT sentences      : {len(truth_sents)}",
-                "",
-                f"  Predicted  : {len(pred_words)} words | "
-                f"{len(pred_sents)} sentences",
-                f"  Ground truth: {len(truth_words)} words | "
-                f"{len(truth_sents)} sentences",
+                f"  Predicted  : {len(pred_words)} words",
+                f"  Ground truth: {len(truth_words)} words",
                 "=" * 50,
             ]
             self._write_acc('\n'.join(lines))
@@ -654,7 +601,6 @@ class BrailleApp:
 # ──────────────────────────────────────────────────────────────────────────────
 
 def main():
-    """Application entry point"""
     root = tk.Tk()
     app = BrailleApp(root)
     root.mainloop()
